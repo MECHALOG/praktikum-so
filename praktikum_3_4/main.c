@@ -1,99 +1,74 @@
-
-#include <stdio.h>      /* untuk printf, perror */
-#include <unistd.h>     /* untuk fork, execl, getpid, getppid, sleep */
-#include <stdlib.h>     /* untuk exit */
-#include <sys/wait.h>   /* untuk wait */
+#include <stdio.h>      // printf(), fflush()
+#include <unistd.h>     // fork(), sleep() (jika perlu), getpid(), getppid()
+#include <stdlib.h>     // exit()
+#include <sys/wait.h>   // wait()
 
 int main() {
-    /* Cetak header singkat (bisa dihapus jika ingin output minimal) */
-    printf("Program gabungan Praktikum 3 & 4 (fork, exec, wait, orphan)\n");
-    printf("PID parent utama: %d\n\n", getpid());
+    pid_t pid;          // menyimpan nilai return dari fork(): 0 di child, >0 di parent, <0 jika gagal
+    int i;              // variabel counter untuk loop
+    int endvalue = 10;  // jumlah iterasi yang diinginkan (10 kali)
 
+    // Membuat proses baru (child). Setelah pemanggilan ini, ada dua proses:
+    // - proses parent (fork() mengembalikan PID child > 0)
+    // - proses child  (fork() mengembalikan 0)
+    pid = fork();
 
-    /* pid akan menampung nilai return fork():
-       - <0 : fork gagal
-       - 0  : sedang di proses child
-       - >0 : sedang di proses parent (nilai adalah PID child) */
-    pid_t pid = fork();
-
-    /* Cek apakah fork gagal */
+    // Cek apakah fork gagal (nilai < 0)
     if (pid < 0) {
-        /* jika fork gagal, tampilkan pesan error dan keluar */
-        perror("Fork gagal");
+        // Jika fork gagal, beri pesan ke pengguna
+        printf("Fork failed\n");
+        // Keluar dari program dengan kode error 1
         exit(1);
     }
+    // Jika fork berhasil dan nilai yang dikembalikan adalah 0 => kita berada di proses child
+    else if (pid == 0) {
+        // INI BAGIAN CHILD
 
-    /* Jika ini jalan pada proses child (pid == 0) */
-    if (pid == 0) {
-        /* --- Di dalam CHILD 1 --- */
+        // Loop child dari 1 sampai endvalue (10)
+        for (i = 1; i <= endvalue; i++) {
+            // Cetak iterasi ke terminal, sesuai format yang diminta
+            printf("Child running %d\n", i);
+            // fflush memastikan output langsung ditampilkan (tanpa buffering)
+            fflush(stdout);
+        }
 
-        /* Tampilkan informasi singkat ke terminal (opsional) */
-        printf("[CHILD 1] PID: %d, PPID: %d\n", getpid(), getppid());
+        // Cetak baris kosong lalu pesan bahwa child selesai dijalankan
+        printf("\nChild selesai dijalankan.\n");
 
-        /* Panggil execl untuk mengganti proses child ini menjadi program /bin/ls
-           Argumen execl:
-             - path lengkap program: "/bin/ls"
-             - argv[0] untuk program baru: "ls"
-             - parameter berikutnya: "-l"
-             - terminator NULL
-           Jika execl berhasil, proses child tidak kembali ke baris setelah execl.
-           Jika execl gagal, kode setelah execl tetap dieksekusi. */
-        execl("/bin/ls", "ls", "-l", NULL);
+        // Pesan "Child Complete" dicetak dari proses child (sesuai permintaan)
+        printf("Child Complete\n");
 
-        /* Jika execl gagal, tampilkan pesan dan exit dengan kode error */
-        perror("execl gagal pada CHILD 1");
-        exit(1);
+        // Child selesai -> keluar dengan status 0 (normal)
+        exit(0);
     }
+    // Jika pid > 0 berarti kita berada di proses parent
+    else {
+        // INI BAGIAN PARENT
 
-    /* Jika ini jalan pada proses parent (pid > 0) */
-    /* Parent menunggu child pertama selesai agar sinkron */
-    wait(NULL); /* wait(NULL) membuat parent menunggu hingga salah satu child selesai */
-    /* Setelah wait kembali, parent melanjutkan eksekusi di sini */
-    printf("[PARENT] Child 1 selesai, lanjut membuat Child 2 (orphan demo)\n\n");
+        // Parent menunggu child selesai; wait(NULL) adalah blocking call
+        // sehingga parent tidak akan melanjutkan sampai child exit()
+        wait(NULL);
 
+        // Setelah child selesai, parent melakukan loop 1..10
+        for (i = 1; i <= endvalue; i++) {
+            // Cetak iterasi parent
+            printf("Parent running %d\n", i);
+            // Pastikan teks muncul segera
+            fflush(stdout);
+        }
 
-    /* Buat child kedua */
-    pid_t pid2 = fork();
+        // Tambah baris kosong agar output sama dengan contoh
+        printf("\nParent Complete\n");
 
-    /* Cek gagal/tidak */
-    if (pid2 < 0) {
-        /* Jika fork gagal, laporkan dan keluar */
-        perror("Fork gagal (child2)");
-        exit(1);
-    }
+        // Parent juga mencetak "Child Complete" lagi (opsional, sesuai permintaan)
+        // Ini akan menghasilkan dua baris "Child Complete": satu dari child, satu dari parent.
+        printf("Child Complete\n");
 
-    if (pid2 == 0) {
-        /* --- Di dalam CHILD 2 --- */
-
-        /* Tampilkan PID dan PPID sebelum menjadi orphan (opsional) */
-        printf("[CHILD 2 - sebelum sleep] PID: %d, PPID: %d\n", getpid(), getppid());
-
-        /* Sleep cukup lama supaya parent bisa exit terlebih dahulu.
-           Karena parent akan exit setelah fork() ini, child akan menjadi orphan
-           dan PPID child akan berubah (biasanya menjadi 1 atau pid dari init/systemd). */
-        sleep(3);
-
-        /* Setelah sleep, tampilkan PPID baru untuk menunjukkan adopsi oleh init/systemd */
-        printf("[CHILD 2 - setelah sleep] PID: %d, PPID (baru): %d\n", getpid(), getppid());
-
-        /* Child selesai */
+        // Parent selesai -> keluar normal
         exit(0);
     }
 
-    /* --- Kembali di PARENT setelah membuat child2 --- */
-
-    /* Parent sengaja tidak menunggu child2 (tidak memanggil wait untuk child2)
-       sehingga parent akan exit terlebih dahulu -> child2 menjadi orphan. */
-    printf("[PARENT] Saya akan exit sekarang agar Child 2 menjadi ORPHAN.\n");
-
-    /* Sleep singkat agar output teratur (opsional) */
-    sleep(1);
-
-    /* Parent keluar di sini; child2 masih berjalan (sleep 3) dan akan diadopsi oleh init/systemd */
-    exit(0);
-
-    /* catatan: kode di bawah tidak akan tercapai karena exit(0) di atas.
-       Ditulis di sini hanya sebagai penutup fungsi main. */
+    // Tidak akan tercapai karena kita selalu exit() di atas, namun return 0 melengkapi fungsi main.
     return 0;
 }
 
